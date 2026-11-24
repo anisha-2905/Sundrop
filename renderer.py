@@ -1,8 +1,10 @@
 """Sunpetal - draws the particle plant as soft additive light on a midnight sky."""
 import numpy as np
 import pygame
+import os
 
 import config as cfg
+from background import Background
 
 
 def _lerp(a, b, t):
@@ -41,31 +43,48 @@ def _glow_sprite(size, level):
 
 class Renderer:
     def __init__(self, win_size, scale=0.5):
-        self.WW, self.WH = win_size
-        self.W, self.H = int(self.WW * scale), int(self.WH * scale)
-        self.layer = pygame.Surface((self.W, self.H), depth=32)
+        self.base_scale = scale
         # tone-map lookup: brightness 1 - exp(-x), so overlapping light saturates softly instead of clipping
         steps = 2048
         self._lut = (255.0 * (1.0 - np.exp(-np.arange(steps) / (steps / 6.0 * 1.0)))).astype(np.uint8)
         self._lut_scale = (steps / 6.0) * cfg.GAIN
-        self.bg = self._make_background()
         self.fireflies = Fireflies(cfg.FIREFLY_COUNT)
         self.sprites = {s: [_glow_sprite(s, l) for l in np.linspace(0.12, 1.0, 8)] for s in (10, 18, 28)}
-        self.font_big = self._font(54)
-        self.font = self._font(19)
-        self.font_small = self._font(15)
-        self._title = None
+        self.background = Background()
+        self.resize(win_size)
+
+    def resize(self, win_size):
+        """Re-fit everything to a new window size / shape (called at start and on every resize)."""
+        self.WW, self.WH = max(int(win_size[0]), cfg.MIN_W), max(int(win_size[1]), cfg.MIN_H)
+        # the particle layer is capped so huge screens stay smooth; it is scaled up when drawn
+        s = min(self.base_scale, cfg.MAX_RENDER_LONG / max(self.WW, self.WH))
+        self.W, self.H = max(int(self.WW * s), 64), max(int(self.WH * s), 64)
+        self.layer = pygame.Surface((self.W, self.H), depth=32)
+        # the plant is sized to fit BOTH the height and the width of the window
+        self.ref = min(self.H, self.W * 1.1)
+        # UI scale: text grows/shrinks with the window but never gets unreadably small
+        self.ui = float(np.clip(min(self.WH / 720.0, self.WW / 800.0), 0.8, 2.0))
+
+        # Tangled-inspired font for Sundrop title
+        font_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                cfg.TITLE_FONT
+            )
+
+        self.font_big = pygame.font.Font(
+                font_path,
+                int(cfg.TITLE_FONT_SIZE * self.ui)
+            )
+
+            # Keep readable fonts for tagline and instructions
+        self.font = self._font(int(19 * self.ui))
+        self.font_small = self._font(int(15 * self.ui))
+        self.background.set_size((self.WW, self.WH))
 
     # ------------------------------------------------------------ setup
     @staticmethod
     def _font(size):
         return pygame.font.SysFont("segoeui,helveticaneue,avenir,arial", size)
-
-    def _make_background(self):
-        """Plain solid navy - no stars, no gradient."""
-        bg = pygame.Surface((self.WW, self.WH))
-        bg.fill(cfg.BACKGROUND_COLOR)
-        return bg
 
     # ------------------------------------------------------------ camera
     def project(self, pos, t):
@@ -79,9 +98,10 @@ class Renderer:
         y = pos[:, 1] - 1.28
         y2, z2 = y * cp - z * sp, y * sp + z * cp
         dist = 5.0 + 0.15 * np.sin(t * 0.11)
-        focal = 1.58 * self.H
+        focal = 1.58 * self.ref
         k = focal / (dist + z2)
-        return self.W / 2 + x * k, self.H * 0.5 - y2 * k, k / (focal / 5.0)
+        cy_screen = self.H * 0.9 - 1.28 * focal / 5.0           # keeps the plant's base ~90% of the way down
+        return self.W / 2 + x * k, cy_screen - y2 * k, k / (focal / 5.0)
 
     # ------------------------------------------------------------ drawing
     def draw(self, screen, pos, col, inten, t):
@@ -110,7 +130,7 @@ class Renderer:
             layer.blit(pygame.image.frombuffer(img.tobytes(), (cw, ch), "RGB"), (xmin, ymin))
         self.layer = layer
 
-        screen.blit(self.bg, (0, 0))
+        screen.blit(self.background.surface(), (0, 0))
         screen.blit(self.layer if (W, H) == (self.WW, self.WH)
                     else pygame.transform.smoothscale(self.layer, (self.WW, self.WH)),
                     (0, 0), special_flags=pygame.BLEND_ADD)
@@ -149,7 +169,7 @@ class Renderer:
             s = self._text(self.font_big, cfg.TITLE, gold, a)
             screen.blit(s, ((self.WW - s.get_width()) // 2, int(self.WH * 0.12)))
             s = self._text(self.font, cfg.TAGLINE, lilac, a * 0.85)
-            screen.blit(s, ((self.WW - s.get_width()) // 2, int(self.WH * 0.12) + 62))
+            screen.blit(s, ((self.WW - s.get_width()) // 2, int(self.WH * 0.12) + int(62 * self.ui)))
 
         if show_help:
             # minimal instructions: visible at the start and whenever you've been idle a while
@@ -162,10 +182,13 @@ class Renderer:
                     cx = int(gap * (i + 1))
                     h = self._text(self.font_small, head, gold, vis * 0.9)
                     tl = self._text(self.font_small, tail, lilac, vis * 0.7)
-                    screen.blit(h, (cx - h.get_width() // 2, self.WH - 58))
-                    screen.blit(tl, (cx - tl.get_width() // 2, self.WH - 36))
+                    screen.blit(h, (cx - h.get_width() // 2, self.WH - int(58 * self.ui)))
+                    screen.blit(tl, (cx - tl.get_width() // 2, self.WH - int(36 * self.ui)))
         if status:
             s = self._text(self.font_small, status, lilac, 0.75)
+            while s.get_width() > self.WW - 32 and len(status) > 8:      # long messages: trim to fit
+                status = status[:-4].rstrip() + "..."
+                s = self._text(self.font_small, status, lilac, 0.75)
             screen.blit(s, (16, 12))
         if preview is not None:
             screen.blit(preview, (self.WW - preview.get_width() - 14, 14))

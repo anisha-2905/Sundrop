@@ -177,7 +177,7 @@ class PetalBlock(Block):
         acc = {k: [] for k in keys}
         for k in range(6):
             outer = k % 2 == 0
-            u, v, kind = sample_blade(rng, n_per)
+            u, v, kind = sample_blade(rng, n_per, edge_frac=0.08, vein_frac=0.06)
             m = len(u)
             full = lambda x: np.full(m, x)
             acc["u"].append(u)

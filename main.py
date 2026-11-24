@@ -1,10 +1,11 @@
-"""Sunpetal - a little magic, at your fingertips.
+"""Sundrop - a little magic, at your fingertips..
 
 Run:   python main.py            (webcam hand tracking)
        python main.py --mouse    (no camera: hold left/right mouse button)
        python main.py --demo     (watch a scripted grow -> bloom -> rest loop)
 
 Keys:  ESC quit | F fullscreen | M switch camera/mouse | H hide hints
+The window is resizable - drag its edges or maximise it; everything re-fits.
 """
 import argparse
 import pygame
@@ -21,7 +22,7 @@ from renderer import Renderer
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Sunpetal - gesture-grown particle lily")
+    p = argparse.ArgumentParser(description="Sundrop - gesture-grown particle lily")
     p.add_argument("--mouse", action="store_true", help="use mouse/keyboard instead of the webcam")
     p.add_argument("--demo", action="store_true", help="play a scripted demo loop")
     p.add_argument("--camera", type=int, default=cfg.CAMERA_INDEX, help="webcam index (default 0)")
@@ -32,13 +33,20 @@ def parse_args():
 def main():
     args = parse_args()
     pygame.init()
-    flags = pygame.SCALED | (pygame.FULLSCREEN if args.fullscreen else 0)
-    screen = pygame.display.set_mode((cfg.WIN_W, cfg.WIN_H), flags)
+    windowed = (cfg.WIN_W, cfg.WIN_H)
+    fullscreen = args.fullscreen
+
+    def open_display():
+        if fullscreen:
+            return pygame.display.set_mode((0, 0), pygame.FULLSCREEN)      # native screen size
+        return pygame.display.set_mode(windowed, pygame.RESIZABLE)
+
+    screen = open_display()
     pygame.display.set_caption(cfg.TITLE)
     clock = pygame.time.Clock()
 
     model = PlantModel(cfg.DENSITY)
-    renderer = Renderer((cfg.WIN_W, cfg.WIN_H), cfg.RENDER_SCALE)
+    renderer = Renderer(screen.get_size(), cfg.RENDER_SCALE)
     ctrl, manual = GestureController(), ManualInput()
 
     tracker = None
@@ -54,11 +62,20 @@ def main():
         for e in pygame.event.get():
             if e.type == pygame.QUIT:
                 running = False
+            elif e.type in (pygame.VIDEORESIZE, getattr(pygame, "WINDOWSIZECHANGED", -1)):
+                screen = pygame.display.get_surface()
+                if not fullscreen:
+                    windowed = screen.get_size()
+                renderer.resize(screen.get_size())
             elif e.type == pygame.KEYDOWN:
                 if e.key in (pygame.K_ESCAPE, pygame.K_q):
                     running = False
                 elif e.key == pygame.K_f:
-                    pygame.display.toggle_fullscreen()
+                    if not fullscreen:
+                        windowed = screen.get_size()
+                    fullscreen = not fullscreen
+                    screen = open_display()
+                    renderer.resize(screen.get_size())
                 elif e.key == pygame.K_m:
                     use_manual = not use_manual
                 elif e.key == pygame.K_h:
@@ -80,11 +97,12 @@ def main():
             if tracker and tracker.status == "error":
                 status = f"Camera unavailable: {tracker.error}  |  mouse mode: left click = grow, right click = bloom"
                 if not reported:
-                    print("[Sunpetal]", tracker.error)
+                    print("[Sundrop]", tracker.error)
                     reported = True
 
         ctrl.update(dt, left, right, t)
         pos, col, inten = model.frame(t, ctrl.grow, ctrl.bloom)
+        screen = pygame.display.get_surface()
         renderer.draw(screen, pos, col, inten, t)
 
         renderer.draw_hud(screen, t, ctrl, status, show_help)
