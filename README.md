@@ -2,121 +2,141 @@
 
 *A little magic, at your fingertips.*
 
-Sundrop is an interactive digital art piece. A glowing golden lily, inspired by the Sundrop flower from *Tangled*, grows and blooms when you move your hands in front of a webcam. The whole plant is built from about 18,000 glowing particles on a midnight-navy background, so it looks like light rather than a solid 3D model.
+Sundrop is an interactive digital artwork inspired by the magical flower in Disney's *Tangled*. It combines real-time hand tracking with procedural plant geometry and particle animation, allowing users to grow and bloom a golden lily plant through touchless gestures.
 
-You don't click a button to make it bloom. Growth and blooming are two separate gestures, one for each hand.
+## Features
 
-## The plant
+- Independent left-hand growth and right-hand blooming controls.
+- Procedurally generated stem, broad basal leaves, narrow stem leaves, two bloomable lilies and one permanently closed bud (as defined in the supplied flower model).
+- Golden-orange petals, purple and pink centre highlights, curled stamens, flowing light pulses and drifting particles.
+- Perspective projection, gentle camera movement and configurable additive glow in the supplied renderer.
+- Procedurally painted lantern-night background with responsive portrait and landscape layouts.
+- Background-thread webcam tracking, gesture smoothing and temporary tracking-loss tolerance.
+- Mouse and keyboard fallback, scripted demo and resizable/fullscreen display.
 
-One connected plant made of:
+## Getting started
 
-- a gently curved stem with light pulses that flow up it
-- broad leaves at the base and narrow pointed leaves along the stem
-- **3 lilies** that can bloom (golden-orange petals, purple and lilac centre, curled glowing stamens)
-- **1 elongated bud** at the top that always stays closed
-- pollen that floats up from open flowers and golden fireflies drifting in the background
+Use Python 3.10–3.12 with the classic MediaPipe Hands API. The following Windows PowerShell setup uses Python 3.11 and suggested compatible dependency versions:
 
-## Gestures
-
-| Hand | What it does |
-|------|--------------|
-| **Left hand, open** | **Grow.** Particles stream up from the ground and form the stem, leaves, flowers and bud. |
-| **Right hand, open** | **Bloom.** The three lilies unfold, recurve and light up gold and purple. This only works once the plant has grown. |
-| **Both hands closed or out of view** | **Rest.** The petals gently close and the plant lowers. The bud stays closed. |
-
-- The flower can never bloom and close at the same time.
-- If hand tracking drops for a moment, the last pose is held for 0.8 seconds, then it eases back to rest.
-- Open your hand fully for the strongest effect. A relaxed fist counts as closed.
-
-## Setup (Windows)
-
-You need **Python 3.10, 3.11 or 3.12**. The pinned MediaPipe version does not support Python 3.13.
-
-```
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
+```powershell
+git clone https://github.com/anisha-2905/Sundrop.git
+cd Sundrop
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install "numpy<2" pygame mediapipe==0.10.14 opencv-contrib-python==4.10.0.84
 python main.py
 ```
 
-## Run modes
+A webcam is needed only for gesture mode. Keep the bundled `fonts/` directory in the project root. The repository does not currently include a dependency manifest; the versions above are suggested, not a verified lockfile.
 
-```
-python main.py              # webcam hand tracking
-python main.py --mouse      # no camera: use mouse and keyboard
-python main.py --demo       # watch a scripted grow -> bloom -> rest loop
-python main.py --camera 1   # use a different webcam
+## Interaction
+
+| Gesture | Action |
+| --- | --- |
+| Open left hand | Gradually assemble the plant |
+| Open right hand | Unfold the lilies once sufficient growth has occurred |
+| Close right hand | Return the petals toward their closed pose |
+| Close left hand | Reverse plant assembly toward the resting seed |
+| Move hands out of view | Briefly retain the last input, then ease toward rest |
+
+Hand openness is continuous rather than a binary gesture. Keep the left hand open while blooming for the complete effect.
+
+### Run modes
+
+```bash
+python main.py
+python main.py --mouse
+python main.py --demo
+python main.py --camera 1
 python main.py --fullscreen
 ```
 
-**Mouse and keyboard mode**
+| Input | Action |
+| --- | --- |
+| Left mouse button / W / Up arrow | Grow |
+| Right mouse button / Space / B | Bloom |
+| F | Toggle fullscreen |
+| M | Toggle manual input when camera tracking is available |
+| H | Toggle gesture hints |
+| Esc / Q | Quit |
 
-- Grow: hold left mouse button, `W` or Up arrow
-- Bloom: hold right mouse button, `Space` or `B`
+## System architecture
 
-**Keys while running**
+```mermaid
+flowchart TD
+ A[Webcam] --> B[OpenCV capture]
+ B --> C[MediaPipe hand landmarks]
+ C --> D[Hand openness and handedness]
+ E[Mouse / keyboard / demo] --> F[Gesture controller]
+ D --> F
+ F --> G[Growth and bloom values]
+ G --> H[Procedural particle model]
+ H --> I[Perspective projection and rendering]
+ J[Procedural night background] --> I
+ I --> K[Pygame display]
+```
 
-| Key | Action |
-|-----|--------|
-| `ESC` or `Q` | Quit |
-| `F` | Toggle fullscreen |
-| `M` | Switch between camera and mouse mode |
-| `H` | Hide or show the on-screen hints |
+## Implementation
 
-## Project files
+**Gesture processing:** Hand openness is estimated from the average wrist-to-fingertip distance for four fingers, normalised by wrist-to-middle-finger-base distance. The ratio is mapped to a bounded value between zero and one. Exponential smoothing and separate rise/fall rates reduce abrupt changes. Blooming is gated by the current growth state.
 
-| File | Purpose |
-|------|---------|
-| `main.py` | Window, main loop, switching between camera, mouse and demo input |
-| `flower_model.py` | The plant itself: stem, leaves, 3 lilies, bud, stamens, pollen, and the grow and bloom animation |
-| `renderer.py` | Camera movement, glowing particle drawing, fireflies, on-screen hints |
-| `hand_input.py` | MediaPipe hand tracking, mouse fallback, gesture smoothing |
-| `config.py` | All the settings (colours, density, glow, gesture sensitivity, speeds) |
-| `check_camera.py` | Diagnostic: shows exactly what is failing if the camera does not work |
-| `requirements.txt` | Python packages to install |
+**Plant modelling:** NumPy arrays represent particle positions, colours and intensities. Parametric curves define the stem; quadratic Bézier curves form leaves, branches and petals. Blade-width functions shape their silhouettes, while sampled edges and veins provide detail. Petal orientation and curvature interpolate between closed and open poses. Seed particles, stamens, pollen and time-dependent sway add motion.
 
-## Settings (`config.py`)
+**Animation:** Each particle has a growth threshold and a spawn position. Smooth interpolation assembles the plant progressively, with transient swirling motion, travelling light pulses and twinkling. Particle counts depend on the density setting and geometry rather than a fixed count.
 
-**Look**
+**Rendering:** The supplied renderer projects 3D coordinates into screen space, distributes particle intensity across neighbouring pixels, applies nonlinear tone mapping and composites the resulting light layer over the background. Optional halos and drifting fireflies enhance the scene.
 
-| Setting | Meaning |
-|---------|---------|
-| `DENSITY` | Particle count multiplier. Lower it (`0.7`) if your PC is slow. |
-| `RENDER_SCALE` | `1.0` is crisp. Use `0.75` for more speed. |
-| `GAIN` | Overall brightness of the particles. |
-| `GLOW` | Soft halo around the light. `0` is perfectly sharp, `1.0` is very dreamy. |
-| `BACKGROUND_COLOR` | Plain background colour. Default is navy `#071329`. |
-| `SHOW_FIREFLIES` | Set to `False` for a perfectly clean background. |
+**Background:** A generated night landscape includes layered hills, trees, clouds, a crescent moon, village silhouettes and lanterns. Painting is performed asynchronously, with layout adapted to window proportions.
 
-**Hand tracking**
+## Project structure
 
-| Setting | Meaning |
-|---------|---------|
-| `CAMERA_INDEX` | Which webcam to use (`0`, `1`, ...). |
-| `SWAP_HANDS` | Set `True` if left and right feel reversed. |
-| `OPEN_MIN`, `OPEN_MAX` | How open a hand must be to count as closed or fully open. |
-| `DEADZONE` | Tiny hand wobbles below this count as closed. |
-| `HOLD_SECONDS` | How long the last pose is held if tracking is lost. |
-| `GROW_RISE`, `GROW_FALL`, `BLOOM_RISE`, `BLOOM_FALL` | How fast the plant grows, blooms and rests. |
+```text
+Sundrop/
+├── fonts/
+├── .gitignore
+├── README.md
+├── background.py     # Procedural night landscape
+├── config.py         # Visual, motion and input settings
+├── flower_model.py   # Plant geometry and particle animation
+├── hand_input.py     # Camera, landmarks and gesture controller
+├── main.py           # Application loop and input modes
+└── renderer.py       # Projection, compositing and HUD
+```
 
-**Flower layout** is in `flower_model.py`, in the `FLOWERS` list:
+## Configuration
 
-- `axis` is the direction a flower faces. `x` is left or right, `y` is up, and a negative `z` faces the viewer.
-- `s` and `off` set where the flower sits on the stem.
-- `size` sets how big it is.
-- `thr` sets when it starts to appear while growing. Smaller numbers appear sooner.
-- `aspect` makes a flower longer and slimmer, which is how the bud is made.
+Edit `config.py` to customise the experience.
 
-## Colour palette
+| Setting | Purpose |
+| --- | --- |
+| `DENSITY` | Particle sampling multiplier; reduce if rendering is slow |
+| `RENDER_SCALE`, `MAX_RENDER_LONG` | Internal rendering resolution |
+| `GAIN`, `GLOW` | Brightness and optional halo strength in the supplied additive renderer |
+| `FPS` | Target frame rate, not a measured benchmark |
+| `SHOW_FIREFLIES`, `FIREFLY_COUNT` | Ambient firefly controls |
+| `OPEN_MIN`, `OPEN_MAX`, `DEADZONE` | Hand openness calibration |
+| `OPENNESS_SMOOTHING` | Input smoothing |
+| `HOLD_SECONDS` | Tracking-loss grace period (0.8 seconds in the repository configuration) |
+| `GROW_RISE`, `GROW_FALL` | Growth and contraction response rates |
+| `BLOOM_RISE`, `BLOOM_FALL` | Petal opening and closing response rates |
+| `CAMERA_INDEX`, `SWAP_HANDS` | Webcam selection and handedness correction |
 
-| Colour | Hex |
-|--------|-----|
-| Midnight navy (background) | `#071329` |
-| Golden orange (petals) | `#FF9D32` |
-| Warm gold (edges, fireflies, stamens) | `#FFD76A` |
-| Royal purple (flower centre) | `#8539D5` |
-| Soft lilac (centre highlights) | `#C6A0FF` |
+The `FLOWERS` list in `flower_model.py` defines flower positions, orientations, sizes, growth thresholds and bloom eligibility. The repository configuration currently sets density to 8.0, glow to zero and includes pointillism-related settings; appearance depends on the renderer version in use.
+
+## Troubleshooting
+
+- Missing local imports: open the entire project folder in VS Code and ensure `config.py` and `background.py` are beside `main.py`.
+- Camera unavailable: close applications using the camera, check OS permissions, or try `--camera 1`.
+- MediaPipe API unavailable: use the specified classic API version and a compatible Python interpreter.
+- Slow rendering: lower `DENSITY` and `RENDER_SCALE`.
+- Test without a webcam using `python main.py --demo`.
+
+## Research context
+
+Sundrop explores gesture-based human-computer interaction, procedural modelling and real-time generative art. Potential evaluation includes gesture response latency, frame rate at different particle densities, tracking stability under varied lighting and perceived interaction quality. These are proposed evaluation directions; no experimental results are claimed.
 
 ## Credits
 
-Inspired by the magical Sundrop flower from Disney's *Tangled*. Built with Python, Pygame, NumPy, OpenCV and MediaPipe.
+Inspired by the Sundrop flower from Disney's *Tangled*. This is an independent creative project, not an official Disney product.
+
+Built using [Python](https://www.python.org/), [NumPy](https://numpy.org/), [Pygame](https://www.pygame.org/), [OpenCV](https://opencv.org/) and [MediaPipe](https://github.com/google-ai-edge/mediapipe).
